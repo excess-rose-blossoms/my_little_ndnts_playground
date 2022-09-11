@@ -18,4 +18,7 @@ module.exports = {
     allowedHosts: "all",
     port: 3333,
   },
+  experiments: {
+    topLevelAwait: true
+  }
 };

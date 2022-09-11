@@ -1,55 +1,42 @@
-import { connectToNetwork } from "@ndn/autoconfig";
-import { Endpoint } from "@ndn/endpoint";
-import { AltUri, Interest, Name } from "@ndn/packet";
+import { PyRepoStore } from "@ndn/repo-external";
 
-async function ping(evt) {
-  evt.preventDefault();
-  // Disable the submit button during function execution.
-  const $button = document.querySelector("#app_button");
-  $button.disabled = true;
-
-  try {
-    // Construct the name prefix <user-input>+/ping .
-    const prefix = new Name(document.querySelector("#app_prefix").value).append("ping");
-    const $log = document.querySelector("#app_log");
-    $log.textContent = `ping ${AltUri.ofName(prefix)}\n`;
-
-    const endpoint = new Endpoint();
-    // Generate a random number as initial sequence number.
-    let seqNum = Math.trunc(Math.random() * 1e8);
-    for (let i = 0; i < 4; ++i) {
-      ++seqNum;
-      // Construct an Interest with prefix + seqNum.
-      const interest = new Interest(prefix.append(`${seqNum}`),
-        Interest.MustBeFresh, Interest.Lifetime(1000));
-      const t0 = Date.now();
-      try {
-        // Retrieve Data and compute round-trip time.
-        const data = await endpoint.consume(interest);
-        const rtt = Date.now() - t0;
-        $log.textContent += `\n${AltUri.ofName(data.name)} rtt=${rtt}ms`;
-      } catch {
-        // Report Data retrieval error.
-        $log.textContent += `\n${AltUri.ofName(interest.name)} timeout`;
-      }
-
-      // Delay 500ms before sending the next Interest.
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  } finally {
-    // Re-enable the submit button.
-    $button.disabled = false;
-  }
-}
+import { Forwarder } from "@ndn/fw";
+import { L3Face } from "@ndn/l3face";
+import { enableNfdPrefixReg } from "@ndn/nfdmgmt";
+import { UnixTransport } from "@ndn/node-transport";
+import { Data, digestSigning, Name } from "@ndn/packet";
 
 async function main() {
-  // Connect to the global NDN network in one line.
-  // This function queries the NDN-FCH service, and connects to the nearest router.
-  await connectToNetwork();
+  const repoPrefix = process.env.DEMO_PYREPO_PREFIX;
+  if (!repoPrefix) {
+    console.log(`
+    To run @ndn/repo-external demo, set the following environment variables:
+    DEMO_PYREPO_PREFIX= command prefix of ndn-python-repo
+    `);
+    process.exit(0);
+  }
+  const dataPrefix = new Name(`/NDNts-repo-external/${Math.trunc(Math.random() * 1e8)}`);
 
-  // Enable the form after connection was successful.
-  document.querySelector("#app_button").disabled = false;
-  document.querySelector("#app_form").addEventListener("submit", ping);
+  const face = await UnixTransport.createFace({}, process.env.DEMO_NFD_UNIX ?? "/run/nfd.sock");
+  enableNfdPrefixReg(face);
+
+  const store = new PyRepoStore({
+    repoPrefix: new Name(repoPrefix),
+  });
+
+  const packets = [];
+  for (let i = 0; i < 256; ++i) {
+    const data = new Data(dataPrefix.append(`${i}`));
+    data.freshnessPeriod = 1;
+    await digestSigning.sign(data);
+    packets.push(data);
+  }
+
+  console.log(`Inserting ${packets.length} packets under ${dataPrefix} to ${repoPrefix}`);
+  try {
+    await store.insert(...packets);
+  } finally {
+    await store.close();
+    face.close();
+  }
 }
-
-window.addEventListener("load", main);
