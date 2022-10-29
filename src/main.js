@@ -1,42 +1,31 @@
-import { PyRepoStore } from "@ndn/repo-external";
-
-import { Forwarder } from "@ndn/fw";
-import { L3Face } from "@ndn/l3face";
-import { enableNfdPrefixReg } from "@ndn/nfdmgmt";
-import { UnixTransport } from "@ndn/node-transport";
-import { Data, digestSigning, Name } from "@ndn/packet";
+const { WsTransport } = "@ndn/ws_transport";
+const { Endpoint } = "@ndn/endpoint";
+const { Interest } = "@ndn/packet";
 
 async function main() {
-  const repoPrefix = process.env.DEMO_PYREPO_PREFIX;
-  if (!repoPrefix) {
-    console.log(`
-    To run @ndn/repo-external demo, set the following environment variables:
-    DEMO_PYREPO_PREFIX= command prefix of ndn-python-repo
-    `);
-    process.exit(0);
+  const uplink = await WsTransport.createFace({}, "ws://localhost:9696");
+
+    // Construct an Endpoint on the default Forwarder instance.
+  const endpoint = new Endpoint();
+
+  console.log("here!");
+
+  // We can now send Interests and retrieve Data.
+  let seq = Math.trunc(Math.random() * 1e8);
+  for (let i = 0; i < 3; ++i) {
+    try {
+      const interest = new Interest(`/ndn/edu/ucla/python-repo/decentar/test/client/mytestfile`);
+      console.log(`<I ${interest.name}`);
+      const data = await endpoint.consume(interest);
+      console.log(`>D ${data.name}`);
+    } catch (err) {
+      console.warn(err);
+    }
   }
-  const dataPrefix = new Name(`/NDNts-repo-external/${Math.trunc(Math.random() * 1e8)}`);
-
-  const face = await UnixTransport.createFace({}, process.env.DEMO_NFD_UNIX ?? "/run/nfd.sock");
-  enableNfdPrefixReg(face);
-
-  const store = new PyRepoStore({
-    repoPrefix: new Name(repoPrefix),
-  });
-
-  const packets = [];
-  for (let i = 0; i < 256; ++i) {
-    const data = new Data(dataPrefix.append(`${i}`));
-    data.freshnessPeriod = 1;
-    await digestSigning.sign(data);
-    packets.push(data);
-  }
-
-  console.log(`Inserting ${packets.length} packets under ${dataPrefix} to ${repoPrefix}`);
-  try {
-    await store.insert(...packets);
-  } finally {
-    await store.close();
-    face.close();
-  }
+  uplink.close();
+  // // Enable the form after connection was successful.
+  // document.querySelector("#app_button").disabled = false;
+  // document.querySelector("#app_form").addEventListener("submit", ping);
 }
+
+window.addEventListener("load", main);
